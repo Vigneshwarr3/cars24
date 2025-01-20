@@ -1,0 +1,742 @@
+---
+title: "Final Project"
+output: html_document
+---
+
+# Problem Statement
+
+The main idea I had behind using this dataset was to try and find some way to predict the selling price of a used car based on brand, model, age, no of previous owners, fuel type, kilometers driven and transmission type. In this dataset I have the selling price for all the rows, but if you consider a scenario like while adding a new row of a used car data, someone should make an assessment of the car and figure out what the selling price should be. I am trying to find a way to automate this part using **linear regression**.
+
+# Importing libraries
+
+```{r}
+library(tidyverse)
+library(ggthemes)
+library(dplyr)
+library(ggrepel)
+library(GGally)
+library(patchwork)
+library(broom)
+library(lindia)
+library(car)
+library(caret)
+library(vtable)
+library(scales)
+options(scipen = 6)
+```
+
+# Importing data set
+
+```{r}
+cars24 <- read.csv("Cars24.csv", na.strings = "") 
+
+head(cars24)
+```
+
+# Assumptions made
+
+For the purpose of this project, it is understood that selling price (price) is the dependent variable also called as Response variable.
+
+And the independent variables are car_brand, model, year, fuel, km_driven, gear and ownership. Independent variables are also called as explanatory variable.
+
+# Initial EDA
+
+## Checking for null values
+
+```{r}
+sapply(cars24, function(x) sum(is.na(x)))
+```
+
+This shows us that all the cells have some value, except for the column model. We will remove those rows before feeding it to our mode.
+
+```{r}
+cars24 <- na.omit(cars24)
+sapply(cars24, function(x) sum(is.na(x)))
+```
+
+Now we can proceed exploring each column to get a better understanding.
+
+## Exploring each column
+
+Creating a function that outputs python equivalent value_count function in pandas.
+
+```{r}
+value_counts <- function(df, col_name) {
+  df |>
+    group_by({{ col_name }}) |>
+    summarise(n=n()) |>
+    arrange(desc(n))
+}
+```
+
+### Column : car_brand
+
+```{r}
+head(value_counts(cars24, car_brand),5)
+```
+
+This shows us the top 5 selling brand in India is Maruti, Hyundai, Honda, Toyota and Volkswagen.
+
+```{r}
+cars24|>
+  filter(car_brand %in% head(value_counts(cars24, car_brand),5)$car_brand) |>
+  ggplot() +
+  geom_bar(mapping = aes(x = car_brand)) +
+  labs(title = "Top 5 Selling brands",
+       x = "Car Brand",
+       y = "Count") +
+  theme_hc()
+```
+
+### Column : model
+
+```{r}
+head(value_counts(cars24, model),5)
+```
+
+```{r}
+cars24|>
+  filter(model %in% head(value_counts(cars24, model),5)$model) |>
+  ggplot() +
+  geom_bar(mapping = aes(x = model, fill = car_brand)) +
+  labs(title = "Top 5 Selling car models",
+       x = "Car model",
+       y = "Count") +
+  theme_hc()
+```
+
+### Column : year
+
+For applying linear regression it is better to find age of each car using the year, instead of using the year column itself.
+
+```{r}
+cars24$age <- year(now()) - cars24$year
+
+head(cars24)
+```
+
+Now, with age we'll visualize it.
+
+```{r}
+head(value_counts(cars24, age),5)
+```
+
+```{r}
+cars24 |>
+  ggplot() +
+  geom_histogram(mapping = aes(x = age)) +
+  labs(title = "Distribution of age",
+       x = "Age",
+       y = "Count") +
+  theme_minimal()
+```
+
+### Column : fuel
+
+```{r}
+value_counts(cars24, fuel)
+```
+
+Let's see it visually.
+
+```{r}
+cars24 |>
+  ggplot() +
+  geom_bar(mapping = aes(x = fuel)) +
+  labs(title = "Distribution of Fuel type",
+       x = "Fuel type",
+       y = "Count") +
+  theme_minimal()
+```
+
+With this plot it is evident that Petrol and Diesel are the most common fuel type used in India, followed by Petrol+CNG, Petrol+LPG. Electric vehicles are not that popular in India.
+
+Lets see the distribution of fuel type among top 5 car brands in India
+
+```{r}
+cars24 |>
+  filter(car_brand %in% head(value_counts(cars24, car_brand),5)$car_brand) |>
+  ggplot() +
+  geom_bar(mapping = aes(x = car_brand, fill = fuel)) +
+  labs(title = "Top 5 Selling brands",
+       x = "Car Brand",
+       y = "Count") +
+  theme_minimal()
+```
+
+### Column : km_driven
+
+```{r}
+cars24 |>
+  ggplot() +
+  geom_histogram(mapping = aes(x = km_driven, fill = fuel), color = 'white') +
+  labs(title = "Distribution of the variable km_driven",
+       x = "Kilometers driven",
+       y = "Count") +
+  theme_minimal()
+```
+
+### Column : gear
+
+```{r}
+cars24 |>
+  ggplot() +
+  geom_bar(mapping = aes(x = gear, fill = fuel)) +
+  labs(title = "Distribution of transmission type",
+       x = "Fuel type",
+       y = "Count") +
+  theme_minimal()
+```
+
+From the above plot we can clearly see that the manual gear type is more popular than the automatic one.
+
+### Column : ownership
+
+For the purpose of applying linear regression, we are going to transform the ownership column into a new column named multiple_owner. This column will have values 0 and 1. 0 mentions that the car doesn't have multiple owner, that is, it has only single owner. And 1 depicts that the car has multiple owner.
+
+Let's transform this column.
+
+```{r}
+cars24$multiple_owner <- ifelse(cars24$ownership > 1, 1, 0)
+
+head(cars24)
+```
+
+```{r}
+cars24 |>
+  ggplot() +
+  geom_bar(mapping = aes(x = multiple_owner)) +
+  labs(title = "Distribution of ownership type",
+       x = "Ownership type",
+       y = "Count") +
+  scale_x_continuous(breaks = c(0, 1)) +
+  theme_minimal()
+```
+
+### Column : price
+
+```{r}
+cars24 |>
+  ggplot() +
+  geom_histogram(mapping = aes(x = price), color = 'white') +
+  labs(title = "Distribution of the variable km_driven",
+       x = "Kilometers driven",
+       y = "Count") +
+  theme_minimal()
+```
+
+This plot is heavily right skewed and with a tail, which suggests us that there might be outliers that needs to be addressed.
+
+# Hypothesis Test
+
+## Test 1
+
+I know for a fact that the price of the car decreases as the age of the car increases. Let's devise a hypothesis test to confirm this.
+
+Null Hypothesis: There is **no relationship** between the age of a car and its average price, meaning the age of the car does **not affect** its price.
+
+Alternative Hypothesis: There **is a relationship** between the age of a car and its average price, such that the price **decreases** as the car's age increases.
+
+```{r}
+test_model <- lm(price ~ age, data = cars24)
+
+summary(test_model)
+```
+
+If you see the p-value for this model is 2.2 \* e\^-16, which is less than the significance value of 0.05. This means that we can reject our null hypothesis. That means there is a relationship between the age and price of the car. And by looking at the coefficient of age in the model it is evident that, it is a negative relationship since it is a negative coefficient.
+
+```{r}
+cars24 |>
+  ggplot(mapping = aes(x = age, y = price)) +
+  geom_point(color = 'darkblue') +
+  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
+  geom_smooth(method = "lm", se = FALSE, color = 'black') +
+  labs(x = "Age of the car",
+       y = "Car Price (INR)",
+       title = "Age Vs Price") +
+  theme_minimal()
+```
+
+## Test 2
+
+I know for a fact that the price of the car decreases as the km_driven of the car increases. Let's devise a hypothesis test to confirm this.
+
+**Null Hypothesis:** There is **no relationship** between the km_driven of a car and its average price.
+
+**Alternative Hypothesis:** There **is a relationship** between the km_driven of a car and its average price.
+
+```{r}
+test_model <- lm(price ~ km_driven, data = cars24)
+
+summary(test_model)
+```
+
+If you see the p-value for this model is 0.000000008034, which is less than the significance value of 0.05. This means that we can reject our null hypothesis. That means there is a relationship between the km_driven and price of the car. And by looking at the coefficient of age in the model it is evident that, it is a negative relationship since it is a negative coefficient.
+
+```{r}
+cars24 |>
+  ggplot(mapping = aes(x = km_driven, y = price)) +
+  geom_point(color = 'darkblue') +
+  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
+  geom_smooth(method = "lm", se = FALSE, color = 'black') +
+  labs(x = "Distance driven by the car (km)",
+       y = "Car Price (INR)",
+       title = "km_driven Vs Price") +
+  theme_minimal()
+```
+
+## Test 3
+
+The categorical variable selected is **Fuel**. The Fuel column has four different values, Petrol, Diesel, Electric, Petrol+LPG and Petrol+CNG. Let's devise an ANOVA test to figure out whether there is any difference between the response variable between the four class of transmission.
+
+**Null Hypothesis** : There is no significant difference in the mean car price across different fuel types.
+
+**Alternative Hypothesis** : There is a significant difference in the mean car price across different fuel types.
+
+Choosing the Significance value ($\alpha$) to be 0.05.
+
+```{r}
+m <- aov(price ~ fuel, data = cars24)
+summary(m)
+```
+
+Since the p value is less than $\alpha$, we can reject the null hypothesis. Which means that there is significant difference in the mean car price across different fuel types.
+
+Since we rejected the null hypothesis, which means that there is enough evidence to conclude there is significant difference between the fuel types. This result suggests that the fuel type of the car impacts its price in the used car market. Understanding this relationship can guide buyers, sellers, and dealers in setting or negotiating car prices more effectively.
+
+```{r}
+cars24 |>
+  filter(price < 4000000) |>
+  ggplot() +
+  geom_boxplot(mapping = aes(y = price, x = fuel)) +
+  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
+  labs(x = "Fuel Type",
+       y = "Car Price (INR)",
+       title = "Fuel Type Vs Price")
+```
+
+# Preprocessing the data
+
+## Converting categorical variables into numerical variables
+
+### Column Fuel
+
+I am going to apply one hot encoding to this column, ultimately splitting it into 5 different columns namely, diesel, petrol, electric, LPG and CNG.
+
+```{r}
+cars24 <- cars24 |>
+  mutate(
+    petrol = ifelse(grepl("petrol", fuel, ignore.case = TRUE), 1, 0),
+    diesel = ifelse(grepl("diesel", fuel, ignore.case = TRUE), 1, 0),
+    electric = ifelse(grepl("electric", fuel, ignore.case = TRUE), 1, 0),
+    lpg = ifelse(grepl("lpg", fuel, ignore.case = TRUE), 1, 0),
+    cng = ifelse(grepl("cng", fuel, ignore.case = TRUE), 1, 0),
+  )
+
+head(cars24)
+```
+
+### Column gear
+
+Like how I converted ownership into binary values, I am also going to convert gear column into a binary one. Creating a new column named manual, and going to update 1 for the rows with manual gear and 0 for rows with automatic gear. I didn't use one hot encoding, because this way I'm getting one less column (one less independent variable as well).
+
+```{r}
+cars24$manual <- ifelse(grepl("manual", cars24$gear, ignore.case = TRUE), 1, 0)
+
+head(cars24)
+```
+
+### Column Car Brand
+
+Here I am not going to apply one hot encoding, since I will end up with 26 more columns, one for each brand. Instead I am gonna Target encode this column. This replaces the car brands with a number representing the average selling price (target value) associated with each category.
+
+```{r}
+cars24 <- cars24 |> 
+  group_by(car_brand) |>
+  mutate(brand_new = mean(price, na.rm = TRUE)) |>
+  ungroup()
+```
+
+```{r}
+head(cars24)
+```
+
+### Column model
+
+```{r}
+cars24 <- cars24 |> 
+  group_by(model) |>
+  mutate(model_new = mean(price, na.rm = TRUE)) |>
+  ungroup()
+
+head(cars24)
+```
+
+## Scaling
+
+Scaling is essential for maintaining consistent relationship between the features and improving model performance. To provide a general understanding of why we do scaling consider the below example.
+
+-   age ranges between 3 to 17
+
+-   km_driven ranges between 179 to 912380
+
+Since the features have a massive difference on their range, it is better to have these values in scale. Hence we are gonna scale our variables.
+
+```{r}
+cars24_scaled <- cars24 |>
+  mutate(across(where(is.numeric), ~ (. - min(.)) / (max(.) - min(.))))
+
+head(cars24_scaled)
+```
+
+# Choosing necessary variables
+
+Since for the purpose of this project I am choosing the following explanatory variables. Not choosing electric, because it has only two rows in the entire dataset, so it is redundant. And the target variable is price.
+
+-   brand_new
+
+-   age
+
+-   km_driven
+
+-   petrol
+
+-   diesel
+
+-   lpg
+
+-   cng
+
+-   manual
+
+-   multiple_owner
+
+# Train test split
+
+```{r}
+set.seed(42)  # For reproducibility
+train_indices <- createDataPartition(cars24_scaled$price, p = 0.8, list = FALSE)
+
+train_set <- cars24_scaled[train_indices, ]
+test_set <- cars24_scaled[-train_indices, ]
+```
+
+# Linear Regression Model
+
+```{r}
+model1 <- lm(price ~ brand_new + age + petrol + diesel + lpg + cng + km_driven + manual + multiple_owner, data = train_set)
+
+model1$coefficients
+```
+
+The equation of the model is mentioned below:
+
+$$
+\begin{align}    \text{Price} &= 0.062 + 0.443 \times \text{brand} - 0.184 \times \text{age} + 0.121 \times \text{petrol} \\                 &\quad + 0.163 \times \text{diesel} + 0.015 \times \text{lpg} - 0.012 \times \text{cng} \\                 &\quad - 0.067 \times \text{km_driven} - 0.061 \times \text{manual} - 0.001 \times \text{multiple_owner}\end{align}
+$$
+
+# Check for Multicollinearity
+
+```{r}
+vif_values <- vif(model1)
+
+vif_df <- data.frame(
+  Variable = names(vif_values),
+  VIF = as.numeric(vif_values)
+)
+
+vif_df |>
+  ggplot() +
+  geom_bar(mapping = aes(x = VIF, y = Variable), stat = "identity", fill = "steelblue") +  # Horizontal bar
+  geom_vline(xintercept = 5, linetype = "dashed", color = "red", linewidth = 1) +  # Add vertical line at VIF = 5
+  labs(title = "VIF Values", x = "VIF", y = "Variable") +  # Axis labels and title
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0),  # Keep x-axis labels horizontal
+        axis.text.y = element_text(angle = 0))  # Keep y-axis labels horizontal
+```
+
+This suggests that the variables petrol and diesel are heavily correlated. Let's remove any one variable and see whether the variance inflation factor (vif) improves.
+
+```{r}
+model1_new <- lm(price ~ brand_new + age + petrol + lpg + cng + km_driven + manual + multiple_owner, data = train_set)
+model1_new$coefficients
+```
+
+```{r}
+vif_values <- vif(model1_new)
+
+vif_df <- data.frame(
+  Variable = names(vif_values),
+  VIF = as.numeric(vif_values)
+)
+
+vif_df |>
+  ggplot() +
+  geom_bar(mapping = aes(x = VIF, y = Variable), stat = "identity", fill = "steelblue") +
+  geom_vline(xintercept = 5, linetype = "dashed", color = "red", linewidth = 1) +
+  labs(title = "VIF Values after removing variable diesel", x = "VIF", y = "Variable") + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0),  
+        axis.text.y = element_text(angle = 0))
+```
+
+Since the vif value of all the variables is less than 5, there is no multicollinearity.
+
+After removing the variable diesel, the equation of the new model is:
+
+$$
+\begin{align}    Price &= 0.225 + 0.442 \times \text{brand} - 0.184 \times \text{age} - 0.041 \times \text{petrol} \\          &\quad +  0.015 \times \text{lpg} - 0.012 \times \text{cng} - 0.067 \times \text{km_driven} \\          &\quad - 0.061 \times \text{manual} - 0.001 \times \text{multiple_owner}\end{align}
+$$
+
+# Weights of coefficients
+
+```{r}
+coef_df <- data.frame(Predictor = names(coef(model1_new)[-1]), coefficient = coef(model1_new)[-1])
+ggplot(coef_df, aes(x = reorder(Predictor, coefficient), y = coefficient)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +  # Flip for horizontal bars (optional)
+  labs(
+    title = "Linear Regression Coefficients",
+    x = "Predictors",
+    y = "Coefficient Value"
+  ) +
+  theme_minimal()
+```
+
+# R - Squared
+
+```{r}
+summary(model1_new)$r.squared
+```
+
+The R-squared value is 0.657. This implies that approximately 65% of the variance in the dependent variable (price of car) can be explained by the independent variables (e.g., age, km_driven, make(brand), etc.) in your regression model. This value makes sense, because we haven't considered some variables like model, location and emi.
+
+# Evaluating the model
+
+## Residuals vs. Fitted Values
+
+```{r}
+gg_resfitted(model1_new) +
+  geom_smooth(se=FALSE) +
+  theme_minimal()
+```
+
+## Residuals vs. X Values
+
+```{r}
+gg_resX(model1_new, plot.all = FALSE)
+```
+
+## Residual Histogram
+
+```{r}
+gg_reshist(model1_new) +
+  theme_minimal()
+```
+
+## QQ-Plots
+
+```{r}
+gg_qqplot(model1_new) +
+  theme_minimal()
+```
+
+# RSME of the model
+
+```{r}
+# mean squared error
+mse <- mean(model1_new$residuals ^ 2)
+
+# root mean squared error
+rmse <- sqrt(mse)
+
+print(rmse)
+```
+
+What is rmse?
+
+**RMSE** stands for **Root Mean Squared Error**, which is a commonly used metric for evaluating the performance of a regression model. It measures the average magnitude of the errors (i.e., the difference between the predicted and actual values) in the same units as the target variable. A lower RMSE indicates better model performance.
+
+**Interpretation**:
+
+-   If RMSE is **0**, the model’s predictions are perfect.
+
+-   A **lower RMSE** indicates better model performance, but it should be compared to other models or benchmarks for context.
+
+This suggests that our model is better model, since our rmse value is close to zero.
+
+# Apply the Model to the Test Set
+
+```{r}
+# Make predictions on the test set
+test_set$predicted_price <- predict(model1_new, newdata = test_set)
+
+test_set <- test_set |>
+  mutate(
+    price_ = price*(3495000 - 91000) + 91000,
+    predicted_price_1 = predicted_price*(3495000 - 91000) + 91000
+  )
+
+test_set |>
+  select(car_brand, price_, predicted_price_1) |>
+  head(10)
+```
+
+# Out of curiosity
+
+## Model with all variables
+
+```{r}
+set.seed(42)  # For reproducibility
+train_indices <- createDataPartition(cars24_scaled$price, p = 0.8, list = FALSE)
+
+train_set_n <- cars24_scaled[train_indices, ]
+test_set_n <- cars24_scaled[-train_indices, ]
+
+model2 <- lm(price ~ brand_new + model_new  + age + petrol + lpg + cng + km_driven + manual + multiple_owner + monthly_payment, data = train_set_n)
+
+summary(model2)
+```
+
+## Linear regression equation
+
+```{r}
+model2$coefficients
+```
+
+$$
+\begin{align}    
+Price &= 0.000003 + 0.0000002 \times \text{brand} - 0.0000007 \times \text{model}- 0.0000004 \times \text{age}\\
+ &\quad - 0.000000008 \times \text{petrol}   - 0.0000004 \times \text{lpg} - 0.0000002 \times \text{cng} \\
+ &\quad - 0.000001 \times \text{km_driven} - 0.0000001 \times \text{manual} \\
+ &\quad + 0.00000002 \times \text{multiple_owner} + 0.999 \times \text{monthly_payment}
+\end{align}
+$$
+
+```{r}
+coef_df <- data.frame(Predictor = names(coef(model2)[-1]), coefficient = coef(model2)[-1])
+ggplot(coef_df, aes(x = reorder(Predictor, coefficient), y = coefficient)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +  # Flip for horizontal bars (optional)
+  labs(
+    title = "Linear Regression Coefficients",
+    x = "Predictors",
+    y = "Coefficient Value"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+model2_new <- lm(price ~ brand_new + model_new  + age + petrol + lpg + cng + km_driven + manual + multiple_owner , data = train_set_n)
+
+summary(model2)
+```
+
+```{r}
+model2_new$coefficients
+```
+
+$$
+\begin{align}    Price &= 0.047 + 0.044 \times \text{brand} + 0.89 \times \text{model} - 0.044 \times \text{age} \\          &\quad - 0.006 \times \text{petrol} +  0.011 \times \text{lpg} - 0.006 \times \text{cng} \\          
+&\quad - 0.078 \times \text{km_driven} - 0.004 \times \text{manual} - 0.002 \times \text{multiple_owner}\end{align}
+$$
+
+## Weights of new LR model2
+
+```{r}
+coef_df <- data.frame(Predictor = names(coef(model2_new)[-1]), coefficient = coef(model2_new)[-1])
+ggplot(coef_df, aes(x = reorder(Predictor, coefficient), y = coefficient)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +  # Flip for horizontal bars (optional)
+  labs(
+    title = "Linear Regression Coefficients",
+    x = "Predictors",
+    y = "Coefficient Value"
+  ) +
+  theme_minimal()
+```
+
+## Multicollinearity check
+
+```{r}
+vif_values <- vif(model2_new)
+
+vif_df <- data.frame(
+  Variable = names(vif_values),
+  VIF = as.numeric(vif_values)
+)
+
+vif_df |>
+  ggplot() +
+  geom_bar(mapping = aes(x = VIF, y = Variable), stat = "identity", fill = "steelblue") +  # Horizontal bar
+  geom_vline(xintercept = 5, linetype = "dashed", color = "red", size = 1) +  # Add vertical line at VIF = 5
+  labs(title = "VIF Values", x = "VIF", y = "Variable") +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0),  
+        axis.text.y = element_text(angle = 0))  
+```
+
+## R Squared
+
+```{r}
+summary(model2_new)$r.squared
+```
+
+## RSME of new model
+
+```{r}
+# mean squared error
+mse <- mean(model2_new$residuals ^ 2)
+
+# root mean squared error
+rmse <- sqrt(mse)
+
+print(rmse)
+```
+
+## Apply the new model to test set
+
+```{r}
+# Make predictions on the test set
+test_set_n$predicted_price <- predict(model2_new, newdata = test_set_n)
+
+test_set_n <- test_set_n |>
+  mutate(
+    price_ = price*(3495000 - 91000) + 91000,
+    predicted_price_2 = predicted_price*(3495000 - 91000) + 91000
+  )
+
+test_set_n |>
+  select(car_brand, price_, predicted_price_2) |>
+  head(10)
+```
+
+## Why emi (monthly_payment) has a coefficient as 0.999?
+
+If you think about it, we need to know the price of a car to determine the monthly payment to be made for that car. And with this info, we can see that the emi (monthly_payment) and price of the car forms a strict linear relationship. Hence we can't use this as an explanatory variable for our model.
+
+```{r}
+cars24 |>
+  ggplot() +
+  geom_point(mapping = aes(x = monthly_payment, y = price)) +
+  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
+  labs(x = "Monthly payment",
+       y = "Car price (INR)",
+       title = "Monthly payment Vs Car Price") +
+  theme_minimal()
+```
+
+## Evaluating the new model
+
+```{r}
+gg_resfitted(model2_new) +
+  geom_smooth(se=FALSE)
+```
+
+```{r}
+gg_reshist(model2_new)
+```
+
+```{r}
+gg_qqplot(model2_new)
+```
