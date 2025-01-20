@@ -12,6 +12,7 @@ Consider a scenario like while adding a new record of a used car data, someone s
 
 The goal of this project is to automate this task using linear regression.
 
-# Navigation
-- To have a detailed look at the project look [here](https://rpubs.com/vraivrao/1255722) file.
-- To view just the summary and findings look the Project presentation
+# Links
+- To have a detailed look at the project look [here](https://rpubs.com/vraivrao/1255722).
+- To view just the summary and findings look the [Project presentation](https://github.com/Vigneshwarr3/cars24/blob/main/Final%20project%20demonstration.pdf)
+- Look at the R code for the project [here](https://github.com/Vigneshwarr3/cars24/blob/main/Project%20Demostration.Rmd)
